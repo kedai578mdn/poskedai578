@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+@layer base {
+  @media print {
+    nav, .col-span-8, .shrink-0 button, .sticky {
+      display: none !important;
+    }
+    .col-span-4 {
+      width: 100% !important;
+      position: static !important;
+    }
+    .bg-zinc-200\/50 {
+      background: white !important;
+      border: none !important;
+      padding: 0 !important;
+    }
+    .rounded-\[40px\] {
+      border-radius: 0 !important;
+    }
+    .shadow-sm {
+      box-shadow: none !important;
+    }
+  }
+}

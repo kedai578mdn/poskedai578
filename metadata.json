@@ -1,0 +1,7 @@
+{
+  "name": "Kedai 578 POS",
+  "description": "Sistem manajemen penjualan terintegrasi untuk Kedai 578, mencakup menu seblak, pulsa, dan layanan cetak.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
