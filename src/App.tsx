@@ -30,6 +30,7 @@ import {
   Image as ImageIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { getSupabase } from './lib/supabase';
 import { 
   LineChart, 
   Line, 
@@ -276,9 +277,13 @@ export default function App() {
 
   const fetchProducts = async () => {
     try {
-      const res = await fetch('/api/products');
-      const data = await res.json();
-      setProducts(data);
+      const { data, error } = await getSupabase()
+        .from('products')
+        .select('*')
+        .order('name', { ascending: true });
+      
+      if (error) throw error;
+      setProducts(data || []);
     } catch (err) {
       console.error('Failed to fetch products', err);
     }
@@ -286,9 +291,17 @@ export default function App() {
 
   const fetchHistory = async () => {
     try {
-      const res = await fetch('/api/transactions/history');
-      const data = await res.json();
-      setHistoryData(data);
+      const { data: transactions, error: tError } = await getSupabase()
+        .from('transactions')
+        .select(`
+          *,
+          items:transaction_items(*)
+        `)
+        .order('timestamp', { ascending: false })
+        .limit(100);
+
+      if (tError) throw tError;
+      setHistoryData(transactions || []);
     } catch (err) {
       console.error('Failed to fetch history', err);
     }
@@ -296,12 +309,45 @@ export default function App() {
 
   const fetchAnalytics = async () => {
     try {
-      const [salesRes, topRes] = await Promise.all([
-        fetch('/api/analytics/sales'),
-        fetch('/api/analytics/top-products')
-      ]);
-      setSalesData(await salesRes.json());
-      setTopProducts(await topRes.json());
+      // Fetch sales by date
+      const { data: sales, error: sError } = await getSupabase()
+        .from('transactions')
+        .select('timestamp, total_amount');
+      
+      if (sError) throw sError;
+
+      // Group by date
+      const groupedSales = (sales || []).reduce((acc: any, curr) => {
+        const date = new Date(curr.timestamp).toISOString().split('T')[0];
+        acc[date] = (acc[date] || 0) + curr.total_amount;
+        return acc;
+      }, {});
+
+      const formattedSales = Object.entries(groupedSales).map(([date, total]) => ({
+        date,
+        total: total as number
+      })).sort((a, b) => a.date.localeCompare(b.date)).slice(-30);
+
+      setSalesData(formattedSales);
+
+      // Fetch top products
+      const { data: items, error: iError } = await getSupabase()
+        .from('transaction_items')
+        .select('product_name, quantity');
+      
+      if (iError) throw iError;
+
+      const groupedProducts = (items || []).reduce((acc: any, curr) => {
+        acc[curr.product_name] = (acc[curr.product_name] || 0) + curr.quantity;
+        return acc;
+      }, {});
+
+      const formattedProducts = Object.entries(groupedProducts).map(([name, total_quantity]) => ({
+        name,
+        total_quantity: total_quantity as number
+      })).sort((a, b) => b.total_quantity - a.total_quantity).slice(0, 10);
+
+      setTopProducts(formattedProducts);
     } catch (err) {
       console.error('Failed to fetch analytics', err);
     }
@@ -356,11 +402,10 @@ export default function App() {
 
     setIsProcessing(true);
     try {
-      const res = await fetch('/api/transactions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items: cart,
+      // 1. Create Transaction
+      const { data: transaction, error: tError } = await getSupabase()
+        .from('transactions')
+        .insert({
           total_amount: total,
           customer_name: customerName,
           order_type: orderType,
@@ -368,20 +413,50 @@ export default function App() {
           change_amount: Math.max(0, paid - total),
           payment_method: paymentMethod
         })
-      });
-      if (res.ok) {
-        setCart([]);
-        setCustomerName('');
-        setOrderType('Dine In');
-        setAmountPaid('');
-        setPaymentMethod('Cash');
-        setShowSuccess(true);
-        fetchProducts();
-        fetchHistory();
-        setTimeout(() => setShowSuccess(false), 3000);
+        .select()
+        .single();
+
+      if (tError) throw tError;
+
+      // 2. Create Transaction Items
+      const transactionItems = cart.map(item => ({
+        transaction_id: transaction.id,
+        product_id: item.id,
+        product_name: item.name,
+        quantity: item.quantity,
+        price: item.price
+      }));
+
+      const { error: iError } = await getSupabase()
+        .from('transaction_items')
+        .insert(transactionItems);
+
+      if (iError) throw iError;
+
+      // 3. Update Stock
+      for (const item of cart) {
+        if (item.stock !== -1) {
+          const { error: sError } = await getSupabase()
+            .from('products')
+            .update({ stock: item.stock - item.quantity })
+            .eq('id', item.id);
+          
+          if (sError) console.error(`Failed to update stock for product ${item.id}`, sError);
+        }
       }
+
+      setCart([]);
+      setCustomerName('');
+      setOrderType('Dine In');
+      setAmountPaid('');
+      setPaymentMethod('Cash');
+      setShowSuccess(true);
+      fetchProducts();
+      fetchHistory();
+      setTimeout(() => setShowSuccess(false), 3000);
     } catch (err) {
       console.error('Checkout failed', err);
+      alert("Checkout gagal: " + (err as Error).message);
     } finally {
       setIsProcessing(false);
     }
@@ -393,17 +468,22 @@ export default function App() {
     
     setIsProcessing(true);
     try {
-      const res = await fetch(`/api/products/${editingProduct.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editingProduct)
-      });
-      if (res.ok) {
-        setEditingProduct(null);
-        fetchProducts();
-      }
+      const { error } = await getSupabase()
+        .from('products')
+        .update({
+          name: editingProduct.name,
+          price: editingProduct.price,
+          stock: editingProduct.stock,
+          image_url: editingProduct.image_url
+        })
+        .eq('id', editingProduct.id);
+
+      if (error) throw error;
+      setEditingProduct(null);
+      fetchProducts();
     } catch (err) {
       console.error("Update failed", err);
+      alert("Update gagal: " + (err as Error).message);
     } finally {
       setIsProcessing(false);
     }
@@ -413,24 +493,23 @@ export default function App() {
     e.preventDefault();
     setIsProcessing(true);
     try {
-      const res = await fetch('/api/products', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newProduct)
+      const { error } = await getSupabase()
+        .from('products')
+        .insert(newProduct);
+
+      if (error) throw error;
+      setIsAddingProduct(false);
+      setNewProduct({
+        name: '',
+        category: 'Seblak',
+        price: 0,
+        stock: -1,
+        image_url: null
       });
-      if (res.ok) {
-        setIsAddingProduct(false);
-        setNewProduct({
-          name: '',
-          category: 'Seblak',
-          price: 0,
-          stock: -1,
-          image_url: null
-        });
-        fetchProducts();
-      }
+      fetchProducts();
     } catch (err) {
       console.error("Create failed", err);
+      alert("Tambah produk gagal: " + (err as Error).message);
     } finally {
       setIsProcessing(false);
     }
@@ -440,14 +519,16 @@ export default function App() {
     if (!confirm("Apakah Anda yakin ingin menghapus produk ini?")) return;
     
     try {
-      const res = await fetch(`/api/products/${id}`, {
-        method: 'DELETE'
-      });
-      if (res.ok) {
-        fetchProducts();
-      }
+      const { error } = await getSupabase()
+        .from('products')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      fetchProducts();
     } catch (err) {
       console.error("Delete failed", err);
+      alert("Hapus produk gagal: " + (err as Error).message);
     }
   };
 
@@ -460,7 +541,7 @@ export default function App() {
             <LayoutDashboard size={24} />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight">Kedai 578 online</h1>
+            <h1 className="text-xl font-bold tracking-tight">Kedai 578</h1>
             <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider">Point of Sale System</p>
           </div>
         </div>
@@ -966,7 +1047,7 @@ export default function App() {
               <div className="sticky top-20 bg-[#F5F5F4]/80 backdrop-blur-md z-30 py-6 -mx-8 px-8 border-b border-zinc-200/50 flex justify-between items-center">
                 <div>
                   <h2 className="text-3xl font-black tracking-tight">Riwayat Penjualan</h2>
-                  <p className="text-zinc-500 text-sm">Daftar transaksi terbaru di Kedai 578 online.</p>
+                  <p className="text-zinc-500 text-sm">Daftar transaksi terbaru di Kedai 578.</p>
                 </div>
                 <div className="bg-white px-4 py-2.5 rounded-xl border border-zinc-200 flex items-center gap-2 shadow-sm">
                   <Clock className="text-zinc-400" size={18} />
