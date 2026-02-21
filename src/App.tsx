@@ -460,7 +460,7 @@ export default function App() {
             <LayoutDashboard size={24} />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight">Kedai 578</h1>
+            <h1 className="text-xl font-bold tracking-tight">Kedai 578 online</h1>
             <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider">Point of Sale System</p>
           </div>
         </div>
@@ -966,7 +966,7 @@ export default function App() {
               <div className="sticky top-20 bg-[#F5F5F4]/80 backdrop-blur-md z-30 py-6 -mx-8 px-8 border-b border-zinc-200/50 flex justify-between items-center">
                 <div>
                   <h2 className="text-3xl font-black tracking-tight">Riwayat Penjualan</h2>
-                  <p className="text-zinc-500 text-sm">Daftar transaksi terbaru di Kedai 578.</p>
+                  <p className="text-zinc-500 text-sm">Daftar transaksi terbaru di Kedai 578 online.</p>
                 </div>
                 <div className="bg-white px-4 py-2.5 rounded-xl border border-zinc-200 flex items-center gap-2 shadow-sm">
                   <Clock className="text-zinc-400" size={18} />
