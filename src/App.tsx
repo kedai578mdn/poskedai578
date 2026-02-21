@@ -13,6 +13,7 @@ import {
   Minus, 
   Trash2, 
   ChevronRight,
+  ChevronDown,
   Search,
   Printer,
   Smartphone,
@@ -50,6 +51,145 @@ import { twMerge } from 'tailwind-merge';
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
+
+// --- Components ---
+interface CategorySelectProps {
+  value: string;
+  categories: string[];
+  onChange: (value: string) => void;
+  placeholder?: string;
+}
+
+const CategorySelect: React.FC<CategorySelectProps> = ({ value, categories, onChange, placeholder }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isAddingNew, setIsAddingNew] = useState(false);
+  const [newCategory, setNewCategory] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const filteredCategories = categories
+    .filter(c => c !== 'All')
+    .filter(c => c.toLowerCase().includes(searchTerm.toLowerCase()));
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleSelect = (cat: string) => {
+    onChange(cat);
+    setIsOpen(false);
+    setSearchTerm('');
+  };
+
+  const handleAddNew = () => {
+    setIsAddingNew(true);
+    setIsOpen(false);
+  };
+
+  if (isAddingNew) {
+    return (
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <input
+            type="text"
+            autoFocus
+            className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/5"
+            placeholder="Ketik kategori baru..."
+            value={newCategory}
+            onChange={(e) => {
+              setNewCategory(e.target.value);
+              onChange(e.target.value);
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setIsAddingNew(false);
+            setNewCategory('');
+            onChange(categories.filter(c => c !== 'All')[0] || '');
+          }}
+          className="p-3 bg-zinc-100 text-zinc-500 rounded-xl hover:bg-zinc-200 transition-colors"
+          title="Batal"
+        >
+          <X size={20} />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl flex items-center justify-between hover:bg-zinc-100/50 transition-colors text-left"
+      >
+        <span className={cn(!value && "text-zinc-400")}>
+          {value || placeholder || "Pilih Kategori"}
+        </span>
+        <ChevronDown size={18} className={cn("text-zinc-400 transition-transform", isOpen && "rotate-180")} />
+      </button>
+
+      {isOpen && (
+        <div className="absolute z-50 top-full left-0 right-0 mt-2 bg-white border border-zinc-200 rounded-2xl shadow-xl overflow-hidden animate-in fade-in zoom-in duration-200">
+          <div className="p-2 border-b border-zinc-100">
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+              <input
+                type="text"
+                className="w-full pl-9 pr-4 py-2 bg-zinc-50 border-none rounded-lg text-sm focus:ring-0"
+                placeholder="Cari kategori..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                autoFocus
+              />
+            </div>
+          </div>
+          
+          <div className="max-h-60 overflow-y-auto p-1">
+            {filteredCategories.length > 0 ? (
+              filteredCategories.map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => handleSelect(cat)}
+                  className={cn(
+                    "w-full px-3 py-2 text-left text-sm rounded-lg transition-colors",
+                    value === cat ? "bg-black text-white font-medium" : "hover:bg-zinc-100 text-zinc-700"
+                  )}
+                >
+                  {cat}
+                </button>
+              ))
+            ) : (
+              <div className="px-3 py-4 text-center text-zinc-400 text-xs">
+                Tidak ada kategori ditemukan
+              </div>
+            )}
+            
+            <div className="p-1 mt-1 border-t border-zinc-100">
+              <button
+                type="button"
+                onClick={handleAddNew}
+                className="w-full px-3 py-2 text-left text-sm text-emerald-600 font-bold rounded-lg hover:bg-emerald-50 transition-colors flex items-center gap-2"
+              >
+                <Plus size={14} />
+                + Tambah Kategori Baru
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('id-ID', {
@@ -251,6 +391,7 @@ export default function App() {
   const [salesData, setSalesData] = useState<SalesData[]>([]);
   const [topProducts, setTopProducts] = useState<TopProductData[]>([]);
   const [historyData, setHistoryData] = useState<any[]>([]);
+  const [configError, setConfigError] = useState<string | null>(null);
 
   const categories = useMemo(() => {
     const cats = Array.from(new Set(products.map(p => p.category)));
@@ -265,17 +406,7 @@ export default function App() {
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
-  useEffect(() => {
-    fetchProducts();
-    if (activeTab === 'analysis') {
-      fetchAnalytics();
-    }
-    if (activeTab === 'history') {
-      fetchHistory();
-    }
-  }, [activeTab]);
-
-  const fetchProducts = async () => {
+  const fetchProducts = React.useCallback(async () => {
     try {
       const { data, error } = await getSupabase()
         .from('products')
@@ -284,12 +415,17 @@ export default function App() {
       
       if (error) throw error;
       setProducts(data || []);
+      setConfigError(null);
     } catch (err) {
       console.error('Failed to fetch products', err);
+      const msg = (err as Error).message;
+      if (msg.includes('Supabase credentials') || msg.includes('VITE_SUPABASE_URL')) {
+        setConfigError(msg);
+      }
     }
-  };
+  }, []);
 
-  const fetchHistory = async () => {
+  const fetchHistory = React.useCallback(async () => {
     try {
       const { data: transactions, error: tError } = await getSupabase()
         .from('transactions')
@@ -305,9 +441,9 @@ export default function App() {
     } catch (err) {
       console.error('Failed to fetch history', err);
     }
-  };
+  }, []);
 
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = React.useCallback(async () => {
     try {
       // Fetch sales by date
       const { data: sales, error: sError } = await getSupabase()
@@ -351,7 +487,42 @@ export default function App() {
     } catch (err) {
       console.error('Failed to fetch analytics', err);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchProducts();
+    if (activeTab === 'analysis') {
+      fetchAnalytics();
+    }
+    if (activeTab === 'history') {
+      fetchHistory();
+    }
+  }, [activeTab, fetchProducts, fetchHistory, fetchAnalytics]);
+
+  // Realtime Subscriptions
+  useEffect(() => {
+    let supabase;
+    try {
+      supabase = getSupabase();
+    } catch (e) {
+      return;
+    }
+
+    const channel = supabase
+      .channel('realtime-updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => {
+        fetchProducts();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => {
+        fetchHistory();
+        fetchAnalytics();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchProducts, fetchHistory, fetchAnalytics]);
 
   const addToCart = (product: Product) => {
     if (product.stock !== -1 && product.stock <= 0) return;
@@ -472,6 +643,7 @@ export default function App() {
         .from('products')
         .update({
           name: editingProduct.name,
+          category: editingProduct.category,
           price: editingProduct.price,
           stock: editingProduct.stock,
           image_url: editingProduct.image_url
@@ -532,6 +704,40 @@ export default function App() {
     }
   };
 
+  if (configError) {
+    return (
+      <div className="min-h-screen bg-zinc-50 flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center space-y-6 border border-zinc-200">
+          <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto text-amber-500">
+            <Package size={40} />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-2xl font-bold tracking-tight">Konfigurasi Diperlukan</h1>
+            <p className="text-zinc-500 text-sm leading-relaxed">
+              Aplikasi ini memerlukan koneksi ke Supabase untuk menyimpan data produk dan transaksi.
+            </p>
+          </div>
+          <div className="bg-zinc-50 p-4 rounded-2xl text-left border border-zinc-100">
+            <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2">Langkah Penyiapan:</p>
+            <ol className="text-xs text-zinc-600 space-y-2 list-decimal list-inside font-medium">
+              <li>Buka dashboard Supabase Anda</li>
+              <li>Salin <span className="text-black font-bold">Project URL</span> dan <span className="text-black font-bold">Anon Key</span></li>
+              <li>Tambahkan ke Environment Variables di AI Studio</li>
+            </ol>
+          </div>
+          <div className="pt-2">
+            <button 
+              onClick={() => window.location.reload()}
+              className="w-full py-3 bg-black text-white rounded-xl font-bold shadow-lg shadow-black/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+            >
+              Cek Lagi & Refresh
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#F5F5F4] text-zinc-900 font-sans">
       {/* Sidebar / Navigation */}
@@ -542,7 +748,10 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight">Kedai 578</h1>
-            <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider">Point of Sale System</p>
+            <div className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Live Sync</p>
+            </div>
           </div>
         </div>
 
@@ -1184,19 +1393,18 @@ export default function App() {
                     />
                   </div>
 
-                  {isAddingProduct && (
+                  {(isAddingProduct || editingProduct) && (
                     <div>
                       <label className="text-xs font-bold text-zinc-400 uppercase tracking-widest mb-1 block">Kategori</label>
-                      <select 
-                        className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/5"
-                        value={newProduct.category}
-                        onChange={(e) => setNewProduct({ ...newProduct, category: e.target.value })}
-                      >
-                        {categories.filter(c => c !== 'All').map(cat => (
-                          <option key={cat} value={cat}>{cat}</option>
-                        ))}
-                        <option value="Lainnya">Lainnya</option>
-                      </select>
+                      <CategorySelect 
+                        value={isAddingProduct ? newProduct.category : editingProduct?.category || ''}
+                        categories={categories}
+                        placeholder="Pilih atau ketik kategori baru..."
+                        onChange={(val) => {
+                          if (isAddingProduct) setNewProduct({ ...newProduct, category: val });
+                          else if (editingProduct) setEditingProduct({ ...editingProduct, category: val });
+                        }}
+                      />
                     </div>
                   )}
 
