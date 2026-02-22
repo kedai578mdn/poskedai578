@@ -194,6 +194,17 @@ const CategorySelect: React.FC<CategorySelectProps> = ({ value, categories, onCh
 const OrderCard: React.FC<{ order: any, onUpdateStatus: (id: number, status: string) => Promise<void> | void }> = ({ order, onUpdateStatus }) => {
   const isSeblak = order.items?.some((item: any) => item.product_name.toLowerCase().includes('seblak'));
   
+  const formatTime = (timestamp: string) => {
+    if (!timestamp) return '--:--';
+    try {
+      const date = new Date(timestamp);
+      if (isNaN(date.getTime())) return '--:--';
+      return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    } catch (e) {
+      return '--:--';
+    }
+  };
+  
   return (
     <motion.div 
       layout
@@ -203,9 +214,9 @@ const OrderCard: React.FC<{ order: any, onUpdateStatus: (id: number, status: str
     >
       <div className="flex justify-between items-start">
         <div>
-          <h4 className="font-black text-sm tracking-tight">{order.customer_name}</h4>
+          <h4 className="font-black text-sm tracking-tight">{order.customer_name || 'Pelanggan'}</h4>
           <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
-            {new Date(order.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+            {formatTime(order.timestamp)}
           </p>
         </div>
         <div className={cn(
@@ -213,9 +224,10 @@ const OrderCard: React.FC<{ order: any, onUpdateStatus: (id: number, status: str
           order.order_type === 'Dine In' ? "bg-emerald-50 text-emerald-600" :
           order.order_type === 'Take Away' ? "bg-amber-50 text-amber-600" :
           order.order_type === 'Shopee' ? "bg-orange-50 text-orange-600" :
-          "bg-blue-50 text-blue-600"
+          order.order_type === 'GoFood' ? "bg-blue-50 text-blue-600" :
+          "bg-zinc-50 text-zinc-600"
         )}>
-          {order.order_type}
+          {order.order_type || 'Unknown'}
         </div>
       </div>
 
@@ -528,7 +540,13 @@ export default function App() {
         .neq('status', 'Done')
         .order('timestamp', { ascending: true });
       
-      if (error) throw error;
+      if (error) {
+        if (error.message.includes('column "status"')) {
+          console.warn('Status column missing, skipping orders fetch');
+          return;
+        }
+        throw error;
+      }
       setOrders(data || []);
     } catch (err) {
       console.error('Failed to fetch orders', err);
@@ -632,7 +650,11 @@ export default function App() {
             : item
         );
       }
-      return [...prev, { ...product, quantity: 1 }];
+      return [...prev, { 
+        ...product, 
+        quantity: 1, 
+        spicy_level: product.category === 'Seblak' ? 0 : undefined 
+      }];
     });
   };
 
@@ -725,7 +747,14 @@ export default function App() {
       setTimeout(() => setShowSuccess(false), 3000);
     } catch (err) {
       console.error('Checkout failed', err);
-      alert("Checkout gagal: " + (err as Error).message);
+      const msg = (err as Error).message;
+      let errorDetail = "";
+      if (msg.includes('column "status"') || msg.includes('column "order_type"')) {
+        errorDetail = "\n\nTip: Pastikan tabel 'transactions' sudah memiliki kolom 'status' (text) dan 'order_type' (text).";
+      } else if (msg.includes('column "spicy_level"')) {
+        errorDetail = "\n\nTip: Pastikan tabel 'transaction_items' sudah memiliki kolom 'spicy_level' (int).";
+      }
+      alert("Checkout gagal: " + msg + errorDetail);
     } finally {
       setIsProcessing(false);
     }
