@@ -191,7 +191,7 @@ const CategorySelect: React.FC<CategorySelectProps> = ({ value, categories, onCh
   );
 };
 
-const OrderCard: React.FC<{ order: any, onUpdateStatus: (id: number, status: string) => Promise<void> | void }> = ({ order, onUpdateStatus }) => {
+const OrderCard: React.FC<{ order: Transaction, onUpdateStatus: (id: number, status: string) => Promise<void> | void }> = ({ order, onUpdateStatus }) => {
   const formatTime = (timestamp: string) => {
     if (!timestamp) return '--:--';
     try {
@@ -257,22 +257,54 @@ const OrderCard: React.FC<{ order: any, onUpdateStatus: (id: number, status: str
         {/* Order Specifications Section */}
         <div className="space-y-2 bg-zinc-50/80 p-4 rounded-2xl border border-zinc-100/50">
           <p className="text-[8px] font-black text-zinc-400 uppercase tracking-[0.2em] mb-2">Spesifikasi Pesanan:</p>
-          <div className="space-y-2">
-            {order.items?.map((item: any, idx: number) => (
-              <div key={idx} className="flex justify-between items-start group/item">
-                <div className="flex flex-col">
-                  <div className="flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-md bg-white border border-zinc-200 flex items-center justify-center text-[10px] font-black text-zinc-900 shadow-sm">
-                      {item.quantity}
-                    </span>
-                    <span className="text-xs font-bold text-zinc-700">{item.product_name}</span>
+          <div className="space-y-3">
+            {/* Seblak Items */}
+            {order.items?.filter(item => 
+              item.product_name.toLowerCase().includes('seblak') || 
+              item.category?.toLowerCase() === 'seblak'
+            ).map((item, idx) => (
+              <div key={item.id || `seblak-${idx}`} className="flex flex-col">
+                <div className="flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-md bg-white border border-zinc-200 flex items-center justify-center text-[10px] font-black text-zinc-900 shadow-sm">
+                    {item.quantity}
+                  </span>
+                  <span className="text-xs font-bold text-zinc-700">{item.product_name}</span>
+                </div>
+                {item.spicy_level !== undefined && item.spicy_level !== null && (
+                  <div className="flex items-center gap-1.5 mt-1 ml-7">
+                    <Flame size={10} className="text-red-500 fill-red-500" />
+                    <span className="text-[9px] font-black text-red-500 uppercase tracking-widest">Level {item.spicy_level}</span>
                   </div>
-                  {item.spicy_level !== undefined && item.spicy_level !== null && (
-                    <div className="flex items-center gap-1.5 mt-1 ml-7">
-                      <Flame size={10} className="text-red-500 fill-red-500" />
-                      <span className="text-[9px] font-black text-red-500 uppercase tracking-widest">Level {item.spicy_level}</span>
-                    </div>
-                  )}
+                )}
+              </div>
+            ))}
+
+            {/* Toping Items (Indented) */}
+            {order.items?.filter(item => 
+              (item.category?.toLowerCase().includes('toping') || item.category?.toLowerCase().includes('topping')) &&
+              !item.product_name.toLowerCase().includes('seblak')
+            ).map((item, idx) => (
+              <div key={item.id || `toping-${idx}`} className="flex flex-col ml-4 border-l-2 border-zinc-200 pl-3 py-0.5">
+                <div className="flex items-center gap-2">
+                  <span className="w-4 h-4 rounded bg-white border border-zinc-200 flex items-center justify-center text-[8px] font-black text-zinc-500">
+                    {item.quantity}
+                  </span>
+                  <span className="text-[11px] font-medium text-zinc-600">{item.product_name}</span>
+                </div>
+              </div>
+            ))}
+
+            {/* Other Items */}
+            {order.items?.filter(item => 
+              !item.product_name.toLowerCase().includes('seblak') &&
+              !(item.category?.toLowerCase().includes('toping') || item.category?.toLowerCase().includes('topping'))
+            ).map((item, idx) => (
+              <div key={item.id || `other-${idx}`} className="flex flex-col">
+                <div className="flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-md bg-white border border-zinc-200 flex items-center justify-center text-[10px] font-black text-zinc-900 shadow-sm">
+                    {item.quantity}
+                  </span>
+                  <span className="text-xs font-bold text-zinc-700">{item.product_name}</span>
                 </div>
               </div>
             ))}
@@ -340,9 +372,33 @@ interface TopProductData {
   total_quantity: number;
 }
 
+interface TransactionItem {
+  id?: number;
+  transaction_id: number;
+  product_id: number;
+  product_name: string;
+  category?: string;
+  quantity: number;
+  price: number;
+  spicy_level?: number;
+}
+
+interface Transaction {
+  id: number;
+  timestamp: string;
+  customer_name: string;
+  order_type: 'Dine In' | 'Take Away' | 'Shopee' | 'GoFood';
+  total_amount: number;
+  amount_paid: number;
+  change_amount: number;
+  payment_method: string;
+  status: 'Queue' | 'Process' | 'Done';
+  items?: TransactionItem[];
+}
+
 // --- Components ---
 
-const TabButton = ({ active, onClick, icon: Icon, label }: { active: boolean, onClick: () => void, icon: any, label: string }) => (
+const TabButton = ({ active, onClick, icon: Icon, label }: { active: boolean, onClick: () => void, icon: React.ElementType, label: string }) => (
   <button
     onClick={onClick}
     className={cn(
@@ -494,7 +550,7 @@ export default function App() {
   const [paymentMethod, setPaymentMethod] = useState<string>('Cash');
   
   // Orders State
-  const [orders, setOrders] = useState<any[]>([]);
+  const [orders, setOrders] = useState<Transaction[]>([]);
   
   // Edit State
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -510,8 +566,36 @@ export default function App() {
   // Analytics State
   const [salesData, setSalesData] = useState<SalesData[]>([]);
   const [topProducts, setTopProducts] = useState<TopProductData[]>([]);
-  const [historyData, setHistoryData] = useState<any[]>([]);
+  const [historyData, setHistoryData] = useState<Transaction[]>([]);
   const [configError, setConfigError] = useState<string | null>(null);
+  const [globalError, setGlobalError] = useState<{ context: string, message: string, detail?: string } | null>(null);
+
+  const handleSupabaseError = React.useCallback((err: any, context: string) => {
+    console.error(`${context} failed`, err);
+    const msg = (err as Error).message || "Unknown error";
+    let errorDetail = "";
+    
+    if (msg.includes('column "status"') || msg.includes('column "order_type"')) {
+      errorDetail = "Pastikan tabel 'transactions' sudah memiliki kolom 'status' (text) dan 'order_type' (text).";
+    } else if (msg.includes('column "spicy_level"')) {
+      errorDetail = "Pastikan tabel 'transaction_items' sudah memiliki kolom 'spicy_level' (int).";
+    } else if (msg.includes('column "category"')) {
+      errorDetail = "Pastikan tabel 'transaction_items' sudah memiliki kolom 'category' (text).";
+    } else if (msg.includes('relation "transaction_items" does not exist')) {
+      errorDetail = "Tabel 'transaction_items' belum dibuat di database.";
+    } else if (msg.includes('relation "transactions" does not exist')) {
+      errorDetail = "Tabel 'transactions' belum dibuat di database.";
+    } else if (msg.includes('relation "products" does not exist')) {
+      errorDetail = "Tabel 'products' belum dibuat di database.";
+    } else if (msg.includes('JWT')) {
+      errorDetail = "Masalah autentikasi. Coba periksa ANON KEY Supabase Anda.";
+    } else if (msg.includes('fetch')) {
+      errorDetail = "Masalah koneksi internet atau URL Supabase tidak valid.";
+    }
+
+    setGlobalError({ context, message: msg, detail: errorDetail });
+    setTimeout(() => setGlobalError(null), 8000);
+  }, []);
 
   const categories = useMemo(() => {
     const cats = Array.from(new Set(products.map(p => p.category)));
@@ -599,7 +683,7 @@ export default function App() {
       if (sError) throw sError;
 
       // Group by date
-      const groupedSales = (sales || []).reduce((acc: any, curr) => {
+      const groupedSales = (sales || []).reduce((acc: Record<string, number>, curr) => {
         const date = new Date(curr.timestamp).toISOString().split('T')[0];
         acc[date] = (acc[date] || 0) + curr.total_amount;
         return acc;
@@ -619,7 +703,7 @@ export default function App() {
       
       if (iError) throw iError;
 
-      const groupedProducts = (items || []).reduce((acc: any, curr) => {
+      const groupedProducts = (items || []).reduce((acc: Record<string, number>, curr) => {
         acc[curr.product_name] = (acc[curr.product_name] || 0) + curr.quantity;
         return acc;
       }, {});
@@ -637,6 +721,9 @@ export default function App() {
 
   useEffect(() => {
     fetchProducts();
+  }, [fetchProducts]);
+
+  useEffect(() => {
     if (activeTab === 'analysis') {
       fetchAnalytics();
     }
@@ -646,7 +733,7 @@ export default function App() {
     if (activeTab === 'orders') {
       fetchOrders();
     }
-  }, [activeTab, fetchProducts, fetchHistory, fetchAnalytics, fetchOrders]);
+  }, [activeTab, fetchHistory, fetchAnalytics, fetchOrders]);
 
   // Realtime Subscriptions
   useEffect(() => {
@@ -713,7 +800,8 @@ export default function App() {
   const handleCheckout = async () => {
     if (cart.length === 0) return;
     if (!customerName.trim()) {
-      alert("Mohon isi nama pemesan!");
+      setGlobalError({ context: "Checkout", message: "Mohon isi nama pemesan!" });
+      setTimeout(() => setGlobalError(null), 3000);
       return;
     }
 
@@ -721,7 +809,8 @@ export default function App() {
     const paid = typeof amountPaid === 'number' ? amountPaid : total;
     
     if (paymentMethod === 'Cash' && paid < total) {
-      alert("Jumlah bayar kurang!");
+      setGlobalError({ context: "Checkout", message: "Jumlah bayar kurang!" });
+      setTimeout(() => setGlobalError(null), 3000);
       return;
     }
 
@@ -749,6 +838,7 @@ export default function App() {
         transaction_id: transaction.id,
         product_id: item.id,
         product_name: item.name,
+        category: item.category,
         quantity: item.quantity,
         price: item.price,
         spicy_level: item.spicy_level || 0
@@ -782,15 +872,7 @@ export default function App() {
       fetchHistory();
       setTimeout(() => setShowSuccess(false), 3000);
     } catch (err) {
-      console.error('Checkout failed', err);
-      const msg = (err as Error).message;
-      let errorDetail = "";
-      if (msg.includes('column "status"') || msg.includes('column "order_type"')) {
-        errorDetail = "\n\nTip: Pastikan tabel 'transactions' sudah memiliki kolom 'status' (text) dan 'order_type' (text).";
-      } else if (msg.includes('column "spicy_level"')) {
-        errorDetail = "\n\nTip: Pastikan tabel 'transaction_items' sudah memiliki kolom 'spicy_level' (int).";
-      }
-      alert("Checkout gagal: " + msg + errorDetail);
+      handleSupabaseError(err, "Checkout");
     } finally {
       setIsProcessing(false);
     }
@@ -807,8 +889,7 @@ export default function App() {
       fetchOrders();
       fetchHistory();
     } catch (err) {
-      console.error("Update status failed", err);
-      alert("Gagal update status: " + (err as Error).message);
+      handleSupabaseError(err, "Update Status");
     }
   };
 
@@ -833,8 +914,7 @@ export default function App() {
       setEditingProduct(null);
       fetchProducts();
     } catch (err) {
-      console.error("Update failed", err);
-      alert("Update gagal: " + (err as Error).message);
+      handleSupabaseError(err, "Update Produk");
     } finally {
       setIsProcessing(false);
     }
@@ -859,8 +939,7 @@ export default function App() {
       });
       fetchProducts();
     } catch (err) {
-      console.error("Create failed", err);
-      alert("Tambah produk gagal: " + (err as Error).message);
+      handleSupabaseError(err, "Tambah Produk");
     } finally {
       setIsProcessing(false);
     }
@@ -878,8 +957,7 @@ export default function App() {
       if (error) throw error;
       fetchProducts();
     } catch (err) {
-      console.error("Delete failed", err);
-      alert("Hapus produk gagal: " + (err as Error).message);
+      handleSupabaseError(err, "Hapus Produk");
     }
   };
 
@@ -1615,8 +1693,8 @@ export default function App() {
 
                       <div className="bg-zinc-50/50 p-6">
                         <div className="flex flex-wrap gap-3">
-                          {transaction.items.map((item: any, idx: number) => (
-                            <div key={idx} className="bg-white px-4 py-2 rounded-2xl border border-zinc-100 flex items-center gap-3 shadow-sm">
+                          {transaction.items?.map((item, idx) => (
+                            <div key={item.id || idx} className="bg-white px-4 py-2 rounded-2xl border border-zinc-100 flex items-center gap-3 shadow-sm">
                               <span className="w-6 h-6 bg-zinc-50 rounded-lg flex items-center justify-center text-[10px] font-black">
                                 {item.quantity}x
                               </span>
@@ -1807,6 +1885,37 @@ export default function App() {
             >
               <Printer size={18} />
               Print Struk
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Error Notification */}
+      <AnimatePresence>
+        {globalError && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.9 }}
+            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 bg-red-600 text-white px-8 py-5 rounded-[32px] shadow-2xl flex items-center gap-6 max-w-lg w-full"
+          >
+            <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center shrink-0">
+              <X size={28} />
+            </div>
+            <div className="flex-1">
+              <p className="font-black text-lg">{globalError.context} Gagal</p>
+              <p className="text-xs text-red-100 font-bold uppercase tracking-widest mb-1">{globalError.message}</p>
+              {globalError.detail && (
+                <p className="text-[10px] bg-black/20 p-2 rounded-lg mt-2 leading-relaxed">
+                  <span className="font-black">TIP:</span> {globalError.detail}
+                </p>
+              )}
+            </div>
+            <button 
+              onClick={() => setGlobalError(null)}
+              className="p-2 hover:bg-white/10 rounded-full transition-colors"
+            >
+              <X size={20} />
             </button>
           </motion.div>
         )}
