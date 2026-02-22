@@ -191,6 +191,74 @@ const CategorySelect: React.FC<CategorySelectProps> = ({ value, categories, onCh
   );
 };
 
+const OrderCard: React.FC<{ order: any, onUpdateStatus: (id: number, status: string) => Promise<void> | void }> = ({ order, onUpdateStatus }) => {
+  const isSeblak = order.items?.some((item: any) => item.product_name.toLowerCase().includes('seblak'));
+  
+  return (
+    <motion.div 
+      layout
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="bg-white border border-zinc-200 rounded-3xl p-5 shadow-sm hover:shadow-md transition-all space-y-4"
+    >
+      <div className="flex justify-between items-start">
+        <div>
+          <h4 className="font-black text-sm tracking-tight">{order.customer_name}</h4>
+          <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
+            {new Date(order.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+          </p>
+        </div>
+        <div className={cn(
+          "px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-wider",
+          order.order_type === 'Dine In' ? "bg-emerald-50 text-emerald-600" :
+          order.order_type === 'Take Away' ? "bg-amber-50 text-amber-600" :
+          order.order_type === 'Shopee' ? "bg-orange-50 text-orange-600" :
+          "bg-blue-50 text-blue-600"
+        )}>
+          {order.order_type}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {order.items?.map((item: any, idx: number) => (
+          <div key={idx} className="flex justify-between items-center">
+            <div className="flex flex-col">
+              <span className="text-xs font-bold text-zinc-700">{item.quantity}x {item.product_name}</span>
+              {item.spicy_level !== undefined && item.spicy_level !== null && (
+                <span className="text-[9px] font-black text-red-500 uppercase tracking-widest">Level {item.spicy_level}</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="pt-4 border-t border-zinc-50 flex gap-2">
+        {order.status === 'Queue' && (
+          <button 
+            onClick={() => onUpdateStatus(order.id, 'Process')}
+            className="flex-1 py-2 bg-blue-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 transition-colors shadow-lg shadow-blue-500/20"
+          >
+            Proses
+          </button>
+        )}
+        {order.status === 'Process' && (
+          <button 
+            onClick={() => onUpdateStatus(order.id, 'Done')}
+            className="flex-1 py-2 bg-emerald-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-colors shadow-lg shadow-emerald-500/20"
+          >
+            Selesai
+          </button>
+        )}
+        {order.status === 'Done' && (
+          <div className="flex-1 py-2 bg-zinc-100 text-zinc-400 rounded-xl text-[10px] font-black uppercase tracking-widest text-center">
+            Selesai
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+};
+
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('id-ID', {
     style: 'currency',
@@ -211,6 +279,7 @@ interface Product {
 
 interface CartItem extends Product {
   quantity: number;
+  spicy_level?: number;
 }
 
 interface SalesData {
@@ -362,7 +431,7 @@ const ImageUpload = ({ value, onChange }: { value: string | null, onChange: (val
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'pos' | 'inventory' | 'analysis' | 'history'>('pos');
+  const [activeTab, setActiveTab] = useState<'pos' | 'inventory' | 'analysis' | 'history' | 'orders'>('pos');
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -372,9 +441,12 @@ export default function App() {
   
   // Cart Info State
   const [customerName, setCustomerName] = useState('');
-  const [orderType, setOrderType] = useState<'Dine In' | 'Take Away'>('Dine In');
+  const [orderType, setOrderType] = useState<'Dine In' | 'Take Away' | 'Shopee' | 'GoFood'>('Dine In');
   const [amountPaid, setAmountPaid] = useState<number | ''>('');
   const [paymentMethod, setPaymentMethod] = useState<string>('Cash');
+  
+  // Orders State
+  const [orders, setOrders] = useState<any[]>([]);
   
   // Edit State
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -438,8 +510,28 @@ export default function App() {
 
       if (tError) throw tError;
       setHistoryData(transactions || []);
+      // Also update orders state with active ones
+      setOrders(transactions?.filter(t => t.status !== 'Done') || []);
     } catch (err) {
       console.error('Failed to fetch history', err);
+    }
+  }, []);
+
+  const fetchOrders = React.useCallback(async () => {
+    try {
+      const { data, error } = await getSupabase()
+        .from('transactions')
+        .select(`
+          *,
+          items:transaction_items(*)
+        `)
+        .neq('status', 'Done')
+        .order('timestamp', { ascending: true });
+      
+      if (error) throw error;
+      setOrders(data || []);
+    } catch (err) {
+      console.error('Failed to fetch orders', err);
     }
   }, []);
 
@@ -497,7 +589,10 @@ export default function App() {
     if (activeTab === 'history') {
       fetchHistory();
     }
-  }, [activeTab, fetchProducts, fetchHistory, fetchAnalytics]);
+    if (activeTab === 'orders') {
+      fetchOrders();
+    }
+  }, [activeTab, fetchProducts, fetchHistory, fetchAnalytics, fetchOrders]);
 
   // Realtime Subscriptions
   useEffect(() => {
@@ -515,6 +610,7 @@ export default function App() {
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => {
         fetchHistory();
+        fetchOrders();
         fetchAnalytics();
       })
       .subscribe();
@@ -522,7 +618,7 @@ export default function App() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [fetchProducts, fetchHistory, fetchAnalytics]);
+  }, [fetchProducts, fetchHistory, fetchAnalytics, fetchOrders]);
 
   const addToCart = (product: Product) => {
     if (product.stock !== -1 && product.stock <= 0) return;
@@ -582,7 +678,8 @@ export default function App() {
           order_type: orderType,
           amount_paid: paid,
           change_amount: Math.max(0, paid - total),
-          payment_method: paymentMethod
+          payment_method: paymentMethod,
+          status: 'Queue'
         })
         .select()
         .single();
@@ -595,7 +692,8 @@ export default function App() {
         product_id: item.id,
         product_name: item.name,
         quantity: item.quantity,
-        price: item.price
+        price: item.price,
+        spicy_level: item.spicy_level || 0
       }));
 
       const { error: iError } = await getSupabase()
@@ -630,6 +728,22 @@ export default function App() {
       alert("Checkout gagal: " + (err as Error).message);
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const updateOrderStatus = async (orderId: number, newStatus: string) => {
+    try {
+      const { error } = await getSupabase()
+        .from('transactions')
+        .update({ status: newStatus })
+        .eq('id', orderId);
+
+      if (error) throw error;
+      fetchOrders();
+      fetchHistory();
+    } catch (err) {
+      console.error("Update status failed", err);
+      alert("Gagal update status: " + (err as Error).message);
     }
   };
 
@@ -761,6 +875,12 @@ export default function App() {
             onClick={() => setActiveTab('pos')} 
             icon={ShoppingCart} 
             label="Penjualan" 
+          />
+          <TabButton 
+            active={activeTab === 'orders'} 
+            onClick={() => setActiveTab('orders')} 
+            icon={Clock} 
+            label="List Pesanan" 
           />
           <TabButton 
             active={activeTab === 'inventory'} 
@@ -901,25 +1021,51 @@ export default function App() {
                     <div className="space-y-2">
                       <label className="text-[9px] font-black text-zinc-400 uppercase tracking-[0.2em] mb-1 block">Daftar Pesanan</label>
                       {cart.map(item => (
-                        <div key={item.id} className="flex gap-3 p-4 rounded-[28px] bg-white border border-zinc-100 shadow-sm hover:border-zinc-300 transition-all group">
-                          <div className="flex-1">
-                            <h4 className="font-bold text-xs text-zinc-900 group-hover:text-black transition-colors line-clamp-1">{item.name}</h4>
-                            <p className="text-[10px] font-black text-zinc-400">{formatCurrency(item.price)}</p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div className="flex items-center bg-zinc-50 border border-zinc-100 rounded-xl p-1 shadow-inner">
-                              <button onClick={() => updateQuantity(item.id, -1)} className="p-1 hover:bg-white hover:shadow-md rounded-lg transition-all text-zinc-400 hover:text-black">
-                                <Minus size={12} />
-                              </button>
-                              <span className="w-8 text-center text-xs font-black">{item.quantity}</span>
-                              <button onClick={() => updateQuantity(item.id, 1)} className="p-1 hover:bg-white hover:shadow-md rounded-lg transition-all text-zinc-400 hover:text-black">
-                                <Plus size={12} />
+                        <div key={item.id} className="flex flex-col gap-2 p-4 rounded-[28px] bg-white border border-zinc-100 shadow-sm hover:border-zinc-300 transition-all group">
+                          <div className="flex gap-3">
+                            <div className="flex-1">
+                              <h4 className="font-bold text-xs text-zinc-900 group-hover:text-black transition-colors line-clamp-1">{item.name}</h4>
+                              <p className="text-[10px] font-black text-zinc-400">{formatCurrency(item.price)}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="flex items-center bg-zinc-50 border border-zinc-100 rounded-xl p-1 shadow-inner">
+                                <button onClick={() => updateQuantity(item.id, -1)} className="p-1 hover:bg-white hover:shadow-md rounded-lg transition-all text-zinc-400 hover:text-black">
+                                  <Minus size={12} />
+                                </button>
+                                <span className="w-8 text-center text-xs font-black">{item.quantity}</span>
+                                <button onClick={() => updateQuantity(item.id, 1)} className="p-1 hover:bg-white hover:shadow-md rounded-lg transition-all text-zinc-400 hover:text-black">
+                                  <Plus size={12} />
+                                </button>
+                              </div>
+                              <button onClick={() => removeFromCart(item.id)} className="w-8 h-8 flex items-center justify-center text-zinc-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
+                                <Trash2 size={16} />
                               </button>
                             </div>
-                            <button onClick={() => removeFromCart(item.id)} className="w-8 h-8 flex items-center justify-center text-zinc-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
-                              <Trash2 size={16} />
-                            </button>
                           </div>
+                          
+                          {item.category === 'Seblak' && (
+                            <div className="flex items-center gap-2 pt-2 border-t border-zinc-50">
+                              <span className="text-[8px] font-black text-zinc-400 uppercase tracking-wider">Level Pedas:</span>
+                              <div className="flex gap-1">
+                                {[0, 1, 2, 3, 4, 5].map(lv => (
+                                  <button
+                                    key={lv}
+                                    onClick={() => {
+                                      setCart(prev => prev.map(i => i.id === item.id ? { ...i, spicy_level: lv } : i));
+                                    }}
+                                    className={cn(
+                                      "w-5 h-5 rounded-md text-[9px] font-black transition-all flex items-center justify-center",
+                                      (item.spicy_level || 0) === lv 
+                                        ? "bg-red-500 text-white shadow-sm" 
+                                        : "bg-zinc-100 text-zinc-400 hover:bg-zinc-200"
+                                    )}
+                                  >
+                                    {lv}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       ))}
                       {cart.length === 0 && (
@@ -968,6 +1114,24 @@ export default function App() {
                               )}
                             >
                               Take Away
+                            </button>
+                            <button 
+                              onClick={() => setOrderType('Shopee')}
+                              className={cn(
+                                "flex-1 py-1.5 rounded-[14px] text-[8px] font-black uppercase tracking-wider transition-all",
+                                orderType === 'Shopee' ? "bg-black text-white shadow-md shadow-black/20" : "text-zinc-400 hover:text-zinc-600"
+                              )}
+                            >
+                              Shopee
+                            </button>
+                            <button 
+                              onClick={() => setOrderType('GoFood')}
+                              className={cn(
+                                "flex-1 py-1.5 rounded-[14px] text-[8px] font-black uppercase tracking-wider transition-all",
+                                orderType === 'GoFood' ? "bg-black text-white shadow-md shadow-black/20" : "text-zinc-400 hover:text-zinc-600"
+                              )}
+                            >
+                              GoFood
                             </button>
                           </div>
                         </div>
@@ -1044,6 +1208,76 @@ export default function App() {
                         </>
                       )}
                     </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'orders' && (
+            <motion.div 
+              key="orders"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-8"
+            >
+              <div className="flex justify-between items-center">
+                <div>
+                  <h2 className="text-3xl font-black tracking-tight">List Pesanan</h2>
+                  <p className="text-zinc-500 text-sm">Kelola antrian pesanan pelanggan secara real-time.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-6">
+                {/* Antrian Column */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between px-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-amber-500 rounded-full" />
+                      <h3 className="font-black text-xs uppercase tracking-widest text-zinc-500">Antrian</h3>
+                    </div>
+                    <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full text-[10px] font-black">{orders.filter(o => o.status === 'Queue').length}</span>
+                  </div>
+                  <div className="space-y-3">
+                    {orders.filter(o => o.status === 'Queue').map(order => (
+                      <OrderCard key={order.id} order={order} onUpdateStatus={updateOrderStatus} />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Proses Column */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between px-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-blue-500 rounded-full" />
+                      <h3 className="font-black text-xs uppercase tracking-widest text-zinc-500">Proses</h3>
+                    </div>
+                    <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-[10px] font-black">{orders.filter(o => o.status === 'Process').length}</span>
+                  </div>
+                  <div className="space-y-3">
+                    {orders.filter(o => o.status === 'Process').map(order => (
+                      <OrderCard key={order.id} order={order} onUpdateStatus={updateOrderStatus} />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Selesai Column */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between px-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-emerald-500 rounded-full" />
+                      <h3 className="font-black text-xs uppercase tracking-widest text-zinc-500">Selesai</h3>
+                    </div>
+                    <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full text-[10px] font-black">{orders.filter(o => o.status === 'Done').length}</span>
+                  </div>
+                  <div className="space-y-3 opacity-60">
+                    {/* We show 'Done' status only if they were recently moved there in this view, 
+                        but fetchOrders filters them out. For this view we might want to show them briefly or 
+                        the user can see them in History. */}
+                    {orders.filter(o => o.status === 'Done').map(order => (
+                      <OrderCard key={order.id} order={order} onUpdateStatus={updateOrderStatus} />
+                    ))}
                   </div>
                 </div>
               </div>
