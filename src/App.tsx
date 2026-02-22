@@ -192,8 +192,6 @@ const CategorySelect: React.FC<CategorySelectProps> = ({ value, categories, onCh
 };
 
 const OrderCard: React.FC<{ order: any, onUpdateStatus: (id: number, status: string) => Promise<void> | void }> = ({ order, onUpdateStatus }) => {
-  const isSeblak = order.items?.some((item: any) => item.product_name.toLowerCase().includes('seblak'));
-  
   const formatTime = (timestamp: string) => {
     if (!timestamp) return '--:--';
     try {
@@ -204,70 +202,108 @@ const OrderCard: React.FC<{ order: any, onUpdateStatus: (id: number, status: str
       return '--:--';
     }
   };
+
+  const getNextStatus = (currentStatus: string) => {
+    if (currentStatus === 'Queue') return 'Process';
+    if (currentStatus === 'Process') return 'Done';
+    return null;
+  };
+
+  const nextStatus = getNextStatus(order.status);
   
   return (
-    <motion.div 
-      layout
-      initial={{ opacity: 0, scale: 0.9 }}
-      animate={{ opacity: 1, scale: 1 }}
-      className="bg-white border border-zinc-200 rounded-3xl p-5 shadow-sm hover:shadow-md transition-all space-y-4"
-    >
-      <div className="flex justify-between items-start">
-        <div>
-          <h4 className="font-black text-sm tracking-tight">{order.customer_name || 'Pelanggan'}</h4>
-          <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
-            {formatTime(order.timestamp)}
-          </p>
+    <div className="relative group">
+      {/* Drag Action Background Indicator */}
+      {nextStatus && (
+        <div className="absolute inset-0 bg-emerald-500 rounded-[32px] flex items-center justify-end px-8 text-white font-black text-[10px] uppercase tracking-widest opacity-0 group-hover:opacity-20 transition-opacity">
+          Geser ke {nextStatus === 'Process' ? 'Proses' : 'Selesai'} →
         </div>
-        <div className={cn(
-          "px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-wider",
-          order.order_type === 'Dine In' ? "bg-emerald-50 text-emerald-600" :
-          order.order_type === 'Take Away' ? "bg-amber-50 text-amber-600" :
-          order.order_type === 'Shopee' ? "bg-orange-50 text-orange-600" :
-          order.order_type === 'GoFood' ? "bg-blue-50 text-blue-600" :
-          "bg-zinc-50 text-zinc-600"
-        )}>
-          {order.order_type || 'Unknown'}
+      )}
+      
+      <motion.div 
+        layout
+        drag={nextStatus ? "x" : false}
+        dragConstraints={{ left: 0, right: 120 }}
+        dragElastic={0.1}
+        onDragEnd={(_, info) => {
+          if (info.offset.x > 80 && nextStatus) {
+            onUpdateStatus(order.id, nextStatus);
+          }
+        }}
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        whileDrag={{ scale: 1.02, zIndex: 50, boxShadow: "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)" }}
+        className="bg-white border border-zinc-200 rounded-[32px] p-5 shadow-sm hover:shadow-md transition-all space-y-4 relative z-10 cursor-grab active:cursor-grabbing"
+      >
+        <div className="flex justify-between items-start">
+          <div>
+            <h4 className="font-black text-sm tracking-tight">{order.customer_name || 'Pelanggan'}</h4>
+            <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
+              {formatTime(order.timestamp)}
+            </p>
+          </div>
+          <div className={cn(
+            "px-2.5 py-1 rounded-full text-[8px] font-black uppercase tracking-wider",
+            order.order_type === 'Dine In' ? "bg-emerald-50 text-emerald-600" :
+            order.order_type === 'Take Away' ? "bg-amber-50 text-amber-600" :
+            order.order_type === 'Shopee' ? "bg-orange-50 text-orange-600" :
+            order.order_type === 'GoFood' ? "bg-blue-50 text-blue-600" :
+            "bg-zinc-50 text-zinc-600"
+          )}>
+            {order.order_type || 'Unknown'}
+          </div>
         </div>
-      </div>
 
-      <div className="space-y-2">
-        {order.items?.map((item: any, idx: number) => (
-          <div key={idx} className="flex justify-between items-center">
-            <div className="flex flex-col">
-              <span className="text-xs font-bold text-zinc-700">{item.quantity}x {item.product_name}</span>
-              {item.spicy_level !== undefined && item.spicy_level !== null && (
-                <span className="text-[9px] font-black text-red-500 uppercase tracking-widest">Level {item.spicy_level}</span>
-              )}
+        {/* Order Specifications Section */}
+        <div className="space-y-2 bg-zinc-50/80 p-4 rounded-2xl border border-zinc-100/50">
+          <p className="text-[8px] font-black text-zinc-400 uppercase tracking-[0.2em] mb-2">Spesifikasi Pesanan:</p>
+          <div className="space-y-2">
+            {order.items?.map((item: any, idx: number) => (
+              <div key={idx} className="flex justify-between items-start group/item">
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-md bg-white border border-zinc-200 flex items-center justify-center text-[10px] font-black text-zinc-900 shadow-sm">
+                      {item.quantity}
+                    </span>
+                    <span className="text-xs font-bold text-zinc-700">{item.product_name}</span>
+                  </div>
+                  {item.spicy_level !== undefined && item.spicy_level !== null && (
+                    <div className="flex items-center gap-1.5 mt-1 ml-7">
+                      <Flame size={10} className="text-red-500 fill-red-500" />
+                      <span className="text-[9px] font-black text-red-500 uppercase tracking-widest">Level {item.spicy_level}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="pt-2 flex gap-2">
+          {order.status === 'Queue' && (
+            <button 
+              onClick={(e) => { e.stopPropagation(); onUpdateStatus(order.id, 'Process'); }}
+              className="flex-1 py-3 bg-blue-500 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 transition-colors shadow-lg shadow-blue-500/20 active:scale-95"
+            >
+              Proses
+            </button>
+          )}
+          {order.status === 'Process' && (
+            <button 
+              onClick={(e) => { e.stopPropagation(); onUpdateStatus(order.id, 'Done'); }}
+              className="flex-1 py-3 bg-emerald-500 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-colors shadow-lg shadow-emerald-500/20 active:scale-95"
+            >
+              Selesai
+            </button>
+          )}
+          {order.status === 'Done' && (
+            <div className="flex-1 py-3 bg-zinc-100 text-zinc-400 rounded-2xl text-[10px] font-black uppercase tracking-widest text-center">
+              Sudah Selesai
             </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="pt-4 border-t border-zinc-50 flex gap-2">
-        {order.status === 'Queue' && (
-          <button 
-            onClick={() => onUpdateStatus(order.id, 'Process')}
-            className="flex-1 py-2 bg-blue-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 transition-colors shadow-lg shadow-blue-500/20"
-          >
-            Proses
-          </button>
-        )}
-        {order.status === 'Process' && (
-          <button 
-            onClick={() => onUpdateStatus(order.id, 'Done')}
-            className="flex-1 py-2 bg-emerald-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-colors shadow-lg shadow-emerald-500/20"
-          >
-            Selesai
-          </button>
-        )}
-        {order.status === 'Done' && (
-          <div className="flex-1 py-2 bg-zinc-100 text-zinc-400 rounded-xl text-[10px] font-black uppercase tracking-widest text-center">
-            Selesai
-          </div>
-        )}
-      </div>
-    </motion.div>
+          )}
+        </div>
+      </motion.div>
+    </div>
   );
 };
 
